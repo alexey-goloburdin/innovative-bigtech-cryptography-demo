@@ -37,6 +37,11 @@ async def change_password(payload: ChangePasswordRequest) -> None:
     """
     Change password for the user with id=1.
     """
+    if "'" in payload.password:
+        raise HTTPException(
+            status_code=400,
+            detail="Password cannot contain a single quote '.",
+        )
     conn = await get_connection()
 
     try:
@@ -59,6 +64,11 @@ async def check_password(
     """
     Check given password for the user with id=1.
     """
+    if "'" in str(USER_ID):
+        raise HTTPException(
+            status_code=500,
+            detail="Incorrect user_id.",
+        )
     conn = await get_connection()
     try:
         row = await conn.fetchrow(
