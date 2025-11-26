@@ -1,6 +1,7 @@
 import os
 
 import asyncpg
+from argon2 import PasswordHasher, exceptions
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
@@ -14,6 +15,34 @@ if not DATABASE_URL:
     raise RuntimeError("DATABASE_URL must be set in .env")
 
 USER_ID = 1
+
+PASSWORD_HASHER = PasswordHasher(
+    time_cost=2, memory_cost=19 * 1024, parallelism=1
+)
+
+
+def hash_password(plain_password: str) -> str:
+    """
+    Принимает обычный пароль и возвращает строку-хеш Argon2id.
+
+    Эту строку и нужно сохранять в БД.
+    """
+    return PASSWORD_HASHER.hash(plain_password)
+
+
+def verify_password(plain_password: str, stored_hash: str) -> bool:
+    """
+    Возвращает True, если введённый пароль соответствует сохранённому хешу,
+    иначе False.
+    """
+    try:
+        return PASSWORD_HASHER.verify(stored_hash, plain_password)
+    except exceptions.VerifyMismatchError:
+        # Пароль не подходит
+        return False
+    except exceptions.VerificationError:
+        # Некорректный формат хеша или другая ошибка верификации
+        return False
 
 
 class ChangePasswordRequest(BaseModel):
@@ -42,7 +71,7 @@ async def change_password(payload: ChangePasswordRequest) -> None:
     try:
         result = await conn.execute(
             "UPDATE users SET password = $1 WHERE id = $2",
-            payload.password,
+            hash_password(payload.password),
             USER_ID,
         )
 
@@ -76,5 +105,7 @@ async def check_password(
     if row is None:
         return CheckPasswordResponse(valid=False)
 
-    stored_password = row["password"]
-    return CheckPasswordResponse(valid=(stored_password == payload.password))
+    stored_password_hash = row["password"]
+    return CheckPasswordResponse(
+        valid=(verify_password(payload.password, stored_password_hash))
+    )
